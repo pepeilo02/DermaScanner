@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -14,7 +13,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -39,24 +37,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Executor
 import androidx.core.graphics.scale
-import com.example.dermascanner.ml.Unet
-import org.tensorflow.lite.DataType
-import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
 import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import androidx.core.graphics.createBitmap
-import androidx.core.graphics.set
 import imageClassifier
 
 data class PhotoEntry(
@@ -331,7 +320,6 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                                             return
                                         }
 
-                                        val density = context.resources.displayMetrics.density
                                         val rotatedBitmap = rotateBitmapIfRequired(bitmap, photoFile)
 
                                         val croppedBitmap = cropBitmapFromPreviewBox(

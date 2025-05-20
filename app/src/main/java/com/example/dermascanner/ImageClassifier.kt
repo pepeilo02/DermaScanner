@@ -1,6 +1,5 @@
 import android.content.Context
 import android.graphics.Bitmap
-import androidx.compose.ui.platform.LocalContext
 import com.example.dermascanner.PhotoEntry
 import com.example.dermascanner.convertBitmapToByteBuffer
 import com.example.dermascanner.convertBitmapToByteBufferUInt
@@ -8,13 +7,10 @@ import com.example.dermascanner.convertOutputToMask
 import com.example.dermascanner.cropMaskIntoImage
 import com.example.dermascanner.ml.Classifier1
 import com.example.dermascanner.ml.Unet
-import com.example.dermascanner.rotateBitmapIfRequired
 import org.tensorflow.lite.DataType
-import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
