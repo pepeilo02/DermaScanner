@@ -4,6 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Matrix
 import android.media.ExifInterface
+import android.util.Log
+import androidx.camera.view.PreviewView
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.set
 import java.io.File
@@ -108,4 +112,44 @@ fun convertBitmapToByteBufferUInt(bitmap: Bitmap): ByteBuffer{
     }
     byteBuffer.rewind()
     return byteBuffer
+}
+
+fun cropBitmapFromPreviewBox(
+    bitmap: Bitmap,
+    previewView: PreviewView,
+    croppingBoxCoords: LayoutCoordinates,
+    outputSize: Int = 256
+): Bitmap {
+
+        val viewLocation = IntArray(2)
+        previewView.getLocationOnScreen(viewLocation)
+        val previewLeft = viewLocation[0]
+        val previewTop = viewLocation[1]
+
+        val previewWidth = previewView.width
+        val previewHeight = previewView.height
+
+        val bitmapWidth = bitmap.width
+        val bitmapHeight = bitmap.height
+
+        val boxRect = croppingBoxCoords.boundsInWindow()
+
+        val scaleX = bitmapWidth.toFloat() / previewWidth
+        val scaleY = bitmapHeight.toFloat() / previewHeight
+
+        val cropLeft = ((boxRect.left - previewLeft) * scaleX).toInt()
+        val cropTop = ((boxRect.top - previewTop) * scaleY).toInt()
+        val cropWidth = (boxRect.width * scaleX).toInt()
+        val cropHeight = (boxRect.height * scaleY).toInt()
+
+        val safeLeft = cropLeft.coerceIn(0, bitmapWidth - 1)
+        val safeTop = cropTop.coerceIn(0, bitmapHeight - 1)
+        val safeWidth = cropWidth.coerceAtMost(bitmapWidth - safeLeft)
+        val safeHeight = cropHeight.coerceAtMost(bitmapHeight - safeTop)
+
+        val croppedBitmap =
+            Bitmap.createBitmap(bitmap, safeLeft, safeTop, safeWidth, safeHeight)
+
+        return croppedBitmap.scale(outputSize, outputSize)
+
 }

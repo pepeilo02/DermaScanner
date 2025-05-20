@@ -36,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -65,7 +67,7 @@ data class PhotoEntry(
     val timestamp: Long
 )
 
-val CROPPING_BOX_SIZE = 256.dp
+val CROPPING_BOX_SIZE = 130.dp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -215,14 +217,22 @@ fun CameraScreen(onNavigateBack: () -> Unit,
         }
     }
 
+    val previewViewRef = remember { mutableStateOf<PreviewView?>(null) }
+
+    val croppingBoxCoords = remember { mutableStateOf<LayoutCoordinates?>(null) }
     if (hasPermission) {
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()) {
 
+
+
                 AndroidView(factory = { ctx ->
                     val previewView = PreviewView(ctx)
+
+                    previewViewRef.value = previewView
+
 
                     val preview = Preview.Builder().build()
 
@@ -243,11 +253,14 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                     previewView
                 })
 
+
+
                 Box(
                     modifier = Modifier
                         .size(CROPPING_BOX_SIZE)
                         .align(Alignment.Center)
                         .border(2.dp, Color.White, RoundedCornerShape(8.dp))
+                        .onGloballyPositioned { coordinates -> croppingBoxCoords.value = coordinates }
                 )
 
 
@@ -278,11 +291,19 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                                             return
                                         }
 
+                                        val density = context.resources.displayMetrics.density
+                                        val cropSizePx = (CROPPING_BOX_SIZE.value * density).toInt()
                                         val rotatedBitmap = rotateBitmapIfRequired(bitmap, photoFile)
 
-                                        val resizedBitmap = rotatedBitmap.scale(256,256)
+                                        val croppedBitmap = cropBitmapFromPreviewBox(
+                                            rotatedBitmap,
+                                            previewViewRef.value!!,
+                                            croppingBoxCoords.value!!,
+                                            outputSize = 256
+                                        )
 
-                                        val result = imageClassifier(resizedBitmap, photoFile, context, fileName, timestamp)
+
+                                        val result = imageClassifier(croppedBitmap, photoFile, context, fileName, timestamp)
 
                                         onPhotoTaken(
                                             result
@@ -326,13 +347,6 @@ fun CameraScreen(onNavigateBack: () -> Unit,
         }
     }
 }
-
-fun cropCenterSquare(bitmap: Bitmap, cropWidth: Int, cropHeight: Int): Bitmap {
-    val x = (bitmap.width - cropWidth) / 2
-    val y = (bitmap.height - cropHeight) / 2
-    return Bitmap.createBitmap(bitmap, x, y, cropWidth, cropHeight)
-}
-
 @Composable
 fun GalleryPickerButton(context: Context, onPhotoTaken: (PhotoEntry) -> Unit) {
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->

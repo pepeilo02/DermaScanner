@@ -5,7 +5,6 @@ import com.example.dermascanner.PhotoEntry
 import com.example.dermascanner.convertBitmapToByteBuffer
 import com.example.dermascanner.convertBitmapToByteBufferUInt
 import com.example.dermascanner.convertOutputToMask
-import com.example.dermascanner.cropCenterSquare
 import com.example.dermascanner.cropMaskIntoImage
 import com.example.dermascanner.ml.Classifier1
 import com.example.dermascanner.ml.Unet
