@@ -10,6 +10,7 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import androidx.core.graphics.get
+import androidx.core.graphics.scale
 
 fun rotateBitmapIfRequired(bitmap: Bitmap, imageFile: File): Bitmap {
     val exif = ExifInterface(imageFile.absolutePath)
@@ -50,23 +51,23 @@ fun cropMaskIntoImage(mask: Bitmap, image: Bitmap): Bitmap {
     val width = mask.width
     val height = mask.height
 
+    val resizedImage = image.scale(width, height, false)
     val result = createBitmap(width, height)
 
     for (y in 0 until height) {
         for (x in 0 until width) {
             val maskPixel = mask[x, y]
-            val alpha = Color.red(maskPixel) // Asumimos que la máscara es en escala de grises
+            val maskValue = Color.red(maskPixel)
 
-            val originalPixel = image[x, y]
-
-            // Si el pixel de la máscara es "blanco" o suficientemente claro, conserva el original
-            if (alpha > 128) {
+            if (maskValue > 128) {
+                val originalPixel = resizedImage[x, y]
                 result[x, y] = originalPixel
             } else {
-                result[x, y] = Color.TRANSPARENT // O Color.BLACK si prefieres
+                result[x, y] = Color.BLACK
             }
         }
     }
+
     return result
 }
 
@@ -83,6 +84,24 @@ fun convertBitmapToByteBuffer(bitmap: Bitmap): ByteBuffer {
         val r = (pixelValue shr 16 and 0xFF) / 255.0f
         val g = (pixelValue shr 8 and 0xFF) / 255.0f
         val b = (pixelValue and 0xFF) / 255.0f
+        byteBuffer.putFloat(r)
+        byteBuffer.putFloat(g)
+        byteBuffer.putFloat(b)
+    }
+    byteBuffer.rewind()
+    return byteBuffer
+}
+
+fun convertBitmapToByteBufferUInt(bitmap: Bitmap): ByteBuffer{
+    val byteBuffer = ByteBuffer.allocateDirect(4 * 256 * 256 * 3)
+    byteBuffer.order(ByteOrder.nativeOrder())
+
+    val intValues = IntArray(256 * 256)
+    bitmap.getPixels(intValues, 0, 256, 0, 0, 256, 256)
+    for (pixelValue in intValues) {
+        val r = (pixelValue shr 16 and 0xFF).toFloat()
+        val g = (pixelValue shr 8 and 0xFF).toFloat()
+        val b = (pixelValue and 0xFF).toFloat()
         byteBuffer.putFloat(r)
         byteBuffer.putFloat(g)
         byteBuffer.putFloat(b)

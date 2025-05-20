@@ -1,54 +1,80 @@
-//package com.example.dermascanner
-//
-//import android.content.Context
-//import android.graphics.Bitmap
-//import org.tensorflow.lite.Interpreter
-//import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
-//import java.nio.ByteBuffer
-//import java.nio.ByteOrder
-//
-//class UnetModel(context: Context) {
-//
-//    private val interpreter: Interpreter
-//    private val imageSize = 256 // Debe coincidir con IMAGE_SIZE usado al entrenar
-//
-//    init {
-//        val assetFileDescriptor = context.assets.openFd("unet_model.tflite")
-//        val fileInputStream = assetFileDescriptor.createInputStream()
-//        val model = fileInputStream.readBytes()
-//        //interpreter = Interpreter(model)
-//    }
-//
-//    fun predict(bitmap: Bitmap): Bitmap {
-//        // Preprocesamiento
-//        val resized = Bitmap.createScaledBitmap(bitmap, imageSize, imageSize, true)
-//        val byteBuffer = convertBitmapToByteBuffer(resized)
-//
-//        // Crear buffer de salida (ajustar según output_shape del modelo, ej: [1, 128, 128, 2])
-//        val outputShape = intArrayOf(1, imageSize, imageSize, 2)
-//        val outputBuffer = TensorBuffer.createFixedSize(outputShape, org.tensorflow.lite.DataType.FLOAT32)
-//
-//        // Ejecutar
-//        interpreter.run(byteBuffer, outputBuffer.buffer.rewind())
-//
-//        // Aquí podrías aplicar post-procesamiento para extraer máscara o clasificación
-//        // Por simplicidad, devolvemos el mismo bitmap (realmente deberías devolver una máscara)
-//        return resized
-//    }
-//
-//    private fun convertBitmapToByteBuffer(bitmap: Bitmap): ByteBuffer {
-//        val byteBuffer = ByteBuffer.allocateDirect(1 * imageSize * imageSize * 3 * 4)
-//        byteBuffer.order(ByteOrder.nativeOrder())
-//        val pixels = IntArray(imageSize * imageSize)
-//        bitmap.getPixels(pixels, 0, imageSize, 0, 0, imageSize, imageSize)
-//        for (pixel in pixels) {
-//            val r = (pixel shr 16 and 0xFF) / 255.0f
-//            val g = (pixel shr 8 and 0xFF) / 255.0f
-//            val b = (pixel and 0xFF) / 255.0f
-//            byteBuffer.putFloat(r)
-//            byteBuffer.putFloat(g)
-//            byteBuffer.putFloat(b)
-//        }
-//        return byteBuffer
-//    }
-//}
+import android.content.Context
+import android.graphics.Bitmap
+import androidx.compose.ui.platform.LocalContext
+import com.example.dermascanner.PhotoEntry
+import com.example.dermascanner.convertBitmapToByteBuffer
+import com.example.dermascanner.convertBitmapToByteBufferUInt
+import com.example.dermascanner.convertOutputToMask
+import com.example.dermascanner.cropCenterSquare
+import com.example.dermascanner.cropMaskIntoImage
+import com.example.dermascanner.ml.Classifier1
+import com.example.dermascanner.ml.Unet
+import com.example.dermascanner.rotateBitmapIfRequired
+import org.tensorflow.lite.DataType
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteOrder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+fun imageClassifier(bitmap: Bitmap, photoFile: File, context: Context, fileName: String, timestamp: Long) : PhotoEntry {
+
+    val byteBuffer = convertBitmapToByteBuffer(bitmap)
+
+    val model = Unet.newInstance(context)
+    val input = TensorBuffer.createFixedSize(intArrayOf(1, 256, 256, 3), DataType.FLOAT32)
+    input.loadBuffer(byteBuffer)
+
+    val outputs = model.process(input)
+    val outputTensor = outputs.outputFeature0AsTensorBuffer
+    val outputArray = outputTensor.floatArray
+    println(outputArray)
+    model.close()
+
+    val maskBitmap = convertOutputToMask(outputArray)
+
+    val croppedImageBitmap = cropMaskIntoImage(maskBitmap, bitmap)
+
+    val byteCroppedBuffer = convertBitmapToByteBufferUInt(croppedImageBitmap)
+
+    val classifier = Classifier1.newInstance(context)
+    val input2 = TensorBuffer.createFixedSize(intArrayOf(1, 256, 256, 3), DataType.FLOAT32)
+    input2.loadBuffer(byteCroppedBuffer)
+
+    val outputs2 = classifier.process(input2)
+    val outputTensor2 = outputs2.getOutputFeature0AsTensorBuffer()
+    val outputArray2 = outputTensor2.floatArray
+    classifier.close()
+
+    val predictionIndex = outputArray2.indices.maxByOrNull { outputArray2[it] } ?: 0
+
+    val prediction = if (predictionIndex == 0) "Benigno" else "Maligno"
+
+    val probability = outputArray2[predictionIndex]
+
+
+    val maskFile = File(
+        context.cacheDir,
+        SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + "_mask.png"
+    )
+    FileOutputStream(maskFile).use { out ->
+        maskBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+    }
+
+    val croppedImageFile= File(context.cacheDir, fileName)
+    FileOutputStream(croppedImageFile).use { out ->
+        croppedImageBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+    }
+
+    return PhotoEntry(
+        imagePath = photoFile.absolutePath,
+        croppedImagePath = croppedImageFile.absolutePath,
+        maskPath = maskFile.absolutePath,
+        prediction = prediction,
+        confidence = probability,
+        timestamp = timestamp
+    )
+}

@@ -1,16 +1,20 @@
 package com.example.dermascanner
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -50,13 +54,18 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.set
+import imageClassifier
 
 data class PhotoEntry(
     val imagePath: String,
+    val croppedImagePath: String,
     val maskPath: String,
+    val prediction: String,
+    val confidence: Float,
     val timestamp: Long
 )
 
+val CROPPING_BOX_SIZE = 256.dp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,7 +115,6 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
         ) {
             Text("Open Camera")
         }
-
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -164,11 +172,13 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
                         }
 
                         Column {
-                            Text("📷 ${entry.maskPath}", style = MaterialTheme.typography.bodyMedium)
+                            Text("📷 ${entry.prediction}", style = MaterialTheme.typography.bodyMedium)
+                            Text("📊 ${entry.confidence}", style = MaterialTheme.typography.bodyMedium)
                             Text(
                                 "🕓 ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(entry.timestamp))}",
                                 style = MaterialTheme.typography.bodySmall
                             )
+
                         }
                     }
                 }
@@ -215,6 +225,7 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                     val previewView = PreviewView(ctx)
 
                     val preview = Preview.Builder().build()
+
                     imageCapture = ImageCapture.Builder().build()
 
                     val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -232,107 +243,74 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                     previewView
                 })
 
-                val density = LocalDensity.current.density
-                val framingBoxSizeDp = (256 / density).dp
                 Box(
                     modifier = Modifier
-                        .size(framingBoxSizeDp)
+                        .size(CROPPING_BOX_SIZE)
                         .align(Alignment.Center)
                         .border(2.dp, Color.White, RoundedCornerShape(8.dp))
                 )
 
 
             }
+                GalleryPickerButton(LocalContext.current, onPhotoTaken = onPhotoTaken)
+                Button(
+                    onClick = {
+                        imageCapture?.let { capture ->
+                            val timestamp = System.currentTimeMillis()
+                            val fileName = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + ".jpg"
 
-            Button(
-                onClick = {
-                    imageCapture?.let { capture ->
-                        val timestamp = System.currentTimeMillis()
-                        val fileName = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + ".jpg"
+                            val photoFile = File(context.cacheDir, fileName)
 
-                        val photoFile = File(context.cacheDir, fileName)
-
-                        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-                        capture.takePicture(
-                            outputOptions,
-                            executor,
-                            object : ImageCapture.OnImageSavedCallback {
-                                override fun onError(exc: ImageCaptureException) {
-                                    Log.e("Camera", "Photo capture failed: ${exc.message}", exc)
-                                }
-
-                                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-
-                                    val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
-                                    if (bitmap == null) {
-                                        Toast.makeText(context, "Error decoding image", Toast.LENGTH_SHORT).show()
-                                        return
+                            val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                            capture.takePicture(
+                                outputOptions,
+                                executor,
+                                object : ImageCapture.OnImageSavedCallback {
+                                    override fun onError(exc: ImageCaptureException) {
+                                        Log.e("Camera", "Photo capture failed: ${exc.message}", exc)
                                     }
 
-                                    val rotatedBitmap = rotateBitmapIfRequired(bitmap, photoFile)
+                                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
 
-                                    val croppedBitmap = cropCenterSquare(rotatedBitmap, 256, 256)
-                                    val byteBuffer = convertBitmapToByteBuffer(croppedBitmap)
+                                        val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
+                                        if (bitmap == null) {
+                                            Toast.makeText(context, "Error decoding image", Toast.LENGTH_SHORT).show()
+                                            return
+                                        }
 
-                                    val model = Unet.newInstance(context)
-                                    val input = TensorBuffer.createFixedSize(intArrayOf(1, 256, 256, 3), DataType.FLOAT32)
-                                    input.loadBuffer(byteBuffer)
+                                        val rotatedBitmap = rotateBitmapIfRequired(bitmap, photoFile)
 
-                                    val outputs = model.process(input)
-                                    val outputTensor = outputs.outputFeature0AsTensorBuffer
-                                    val outputArray = outputTensor.floatArray
-                                    println(outputArray)
-                                    model.close()
+                                        val resizedBitmap = rotatedBitmap.scale(256,256)
 
-                                    val maskBitmap = convertOutputToMask(outputArray)
+                                        val result = imageClassifier(resizedBitmap, photoFile, context, fileName, timestamp)
 
-                                    val croppedImageBitmap = cropMaskIntoImage(maskBitmap, croppedBitmap)
-
-                                    val maskFile = File(
-                                        context.cacheDir,
-                                        SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + "_mask.png"
-                                    )
-                                    FileOutputStream(maskFile).use { out ->
-                                        maskBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
-                                    }
-
-                                    val imageFile= File(context.cacheDir, fileName)
-                                    FileOutputStream(imageFile).use { out ->
-                                        croppedImageBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
-                                    }
-
-                                    // 6. Actualizar historial (pasar entrada al callback)
-                                    onPhotoTaken(
-                                        PhotoEntry(
-                                            imagePath = imageFile.absolutePath,
-                                            maskPath = maskFile.absolutePath,
-                                            timestamp = timestamp
+                                        onPhotoTaken(
+                                            result
                                         )
-                                    )
 
-                                    Toast.makeText(context, "Photo & mask saved!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Photo & mask saved!", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
-                            }
-                        )
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text("Take Photo")
-            }
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text("Take Photo")
+                }
 
 
-            Button(
-                onClick = onNavigateBack,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Text("Back to Home")
+                Button(
+                    onClick = onNavigateBack,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text("Back to Home")
+                }
             }
-        }
     } else {
         Column(
             modifier = Modifier
@@ -353,4 +331,45 @@ fun cropCenterSquare(bitmap: Bitmap, cropWidth: Int, cropHeight: Int): Bitmap {
     val x = (bitmap.width - cropWidth) / 2
     val y = (bitmap.height - cropHeight) / 2
     return Bitmap.createBitmap(bitmap, x, y, cropWidth, cropHeight)
+}
+
+@Composable
+fun GalleryPickerButton(context: Context, onPhotoTaken: (PhotoEntry) -> Unit) {
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+
+
+            if (bitmap != null) {
+                val timestamp = System.currentTimeMillis()
+                val fileName = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + ".jpg"
+                val photoFile = File(context.cacheDir, fileName)
+                val resizedBitmap = bitmap.scale(256,256)
+
+                FileOutputStream(photoFile).use { out ->
+                    resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+                }
+
+                val result=imageClassifier(resizedBitmap, photoFile, context, fileName, timestamp)
+
+                onPhotoTaken(result)
+
+                Toast.makeText(context, "Photo & mask saved!", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Log.d("PhotoPicker", "No media selected")
+        }
+    }
+
+    Button(
+        onClick = {
+            pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Text("Open Gallery")
+    }
 }
