@@ -210,6 +210,9 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
 
                     Text("Predicción: ${entry.prediction}", style = MaterialTheme.typography.bodyLarge)
                     Text("Confianza: ${"%.2f".format(entry.confidence * 100)}%", style = MaterialTheme.typography.bodyMedium)
+                    if (entry.prediction=="Maligno" && entry.confidence>0.75){
+                        Text(color=Color.Red,text="Deberia consultar con su médico esta lesión")
+                    }
                 }
             },
             confirmButton = {
@@ -322,12 +325,18 @@ fun CameraScreen(onNavigateBack: () -> Unit,
 
                                         val rotatedBitmap = rotateBitmapIfRequired(bitmap, photoFile)
 
+
                                         val croppedBitmap = cropBitmapFromPreviewBox(
                                             rotatedBitmap,
                                             previewViewRef.value!!,
                                             croppingBoxCoords.value!!,
                                             outputSize = 256
                                         )
+
+                                        val croppedFile= File(context.cacheDir, fileName)
+                                        FileOutputStream(croppedFile).use { out ->
+                                            croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+                                        }
 
 
                                         val result = imageClassifier(croppedBitmap, photoFile, context, fileName, timestamp)
