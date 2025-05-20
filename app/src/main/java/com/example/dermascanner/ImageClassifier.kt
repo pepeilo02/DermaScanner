@@ -63,7 +63,8 @@ fun imageClassifier(bitmap: Bitmap, photoFile: File, context: Context, fileName:
         maskBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
     }
 
-    val croppedImageFile= File(context.cacheDir, fileName)
+    val croppedImageFile= File(context.cacheDir,
+        SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + "_cropped.png")
     FileOutputStream(croppedImageFile).use { out ->
         croppedImageBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
     }

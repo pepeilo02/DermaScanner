@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.text.SimpleDateFormat
@@ -105,6 +106,7 @@ fun AppNavigation() {
 @Composable
 fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
 
+    var selectedEntry by remember { mutableStateOf<PhotoEntry?>(null) }
 
     Column(
         modifier = Modifier
@@ -127,19 +129,13 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
         if (photoHistory.isEmpty()) {
             Text("No hay fotos aún.")
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.verticalScroll(
-                rememberScrollState()
-            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
                 photoHistory.reversed().forEach { entry ->
-                    val imagePath = entry.imagePath
-                    val bitmap = remember(imagePath) {
-                        BitmapFactory.decodeFile(imagePath)
-                    }
-                    val maskPath = entry.maskPath
-                    val maskBitmap = remember(maskPath) {
-                        BitmapFactory.decodeFile(maskPath)
-                    }
+                    val bitmap = remember(entry.imagePath) { BitmapFactory.decodeFile(entry.imagePath) }
+                    val maskBitmap = remember(entry.maskPath) { BitmapFactory.decodeFile(entry.maskPath) }
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -148,7 +144,7 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
                             .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
                             .padding(8.dp)
                             .scrollable(orientation = Orientation.Horizontal, state = rememberScrollState())
-                            .clickable {  }
+                            .clickable { selectedEntry = entry }
                     ) {
                         if (bitmap != null) {
                             Image(
@@ -158,7 +154,6 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
                                     .size(120.dp)
                                     .padding(end = 8.dp)
                                     .border(2.dp, Color.Black, RoundedCornerShape(8.dp)),
-
                                 contentScale = ContentScale.Crop
                             )
                         }
@@ -175,17 +170,65 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
 
                         Column {
                             Text("📷 ${entry.prediction}", style = MaterialTheme.typography.bodyMedium)
-                            Text("📊 ${entry.confidence}", style = MaterialTheme.typography.bodyMedium)
+                            Text("📊 ${"%.2f".format(entry.confidence * 100)}%", style = MaterialTheme.typography.bodyMedium)
                             Text(
                                 "🕓 ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(entry.timestamp))}",
                                 style = MaterialTheme.typography.bodySmall
                             )
-
                         }
                     }
                 }
             }
         }
+    }
+    selectedEntry?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { selectedEntry = null },
+            title = { Text(text = "Detalles de la foto") },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val originalBitmap = BitmapFactory.decodeFile(entry.imagePath)
+                    val croppedBitmap = BitmapFactory.decodeFile(entry.croppedImagePath)
+
+                    if (originalBitmap != null) {
+                        Text("Foto Original")
+                        Image(
+                            bitmap = originalBitmap.asImageBitmap(),
+                            contentDescription = "Foto original",
+                            modifier = Modifier
+                                .size(200.dp)
+                                .padding(8.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    if (croppedBitmap != null) {
+                        Text("Foto Recortada")
+                        Image(
+                            bitmap = croppedBitmap.asImageBitmap(),
+                            contentDescription = "Foto recortada",
+                            modifier = Modifier
+                                .size(200.dp)
+                                .padding(8.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text("Predicción: ${entry.prediction}", style = MaterialTheme.typography.bodyLarge)
+                    Text("Confianza: ${"%.2f".format(entry.confidence * 100)}%", style = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = {
+                Button(onClick = { selectedEntry = null }) {
+                    Text("Cerrar")
+                }
+            }
+        )
     }
 }
 
@@ -225,9 +268,6 @@ fun CameraScreen(onNavigateBack: () -> Unit,
             Box(modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()) {
-
-
-
                 AndroidView(factory = { ctx ->
                     val previewView = PreviewView(ctx)
 
@@ -292,7 +332,6 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                                         }
 
                                         val density = context.resources.displayMetrics.density
-                                        val cropSizePx = (CROPPING_BOX_SIZE.value * density).toInt()
                                         val rotatedBitmap = rotateBitmapIfRequired(bitmap, photoFile)
 
                                         val croppedBitmap = cropBitmapFromPreviewBox(
