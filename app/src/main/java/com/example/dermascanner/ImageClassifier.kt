@@ -52,7 +52,7 @@ fun imageClassifier(bitmap: Bitmap, photoFile: File, context: Context, fileName:
 
 
     val maskFile = File(
-        context.cacheDir,
+        context.filesDir,
         SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + "_mask.png"
     )
     FileOutputStream(maskFile).use { out ->

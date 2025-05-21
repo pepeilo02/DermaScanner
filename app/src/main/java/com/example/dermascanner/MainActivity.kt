@@ -45,20 +45,23 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Executor
 import androidx.core.graphics.scale
+import androidx.room.Room
 import java.io.FileOutputStream
 import imageClassifier
 
-data class PhotoEntry(
-    val imagePath: String,
-    val croppedImagePath: String,
-    val maskPath: String,
-    val prediction: String,
-    val confidence: Float,
-    val timestamp: Long
-)
 
 val CROPPING_BOX_SIZE = 130.dp
 
+class DatabaseClient(private val context: Context) {
+    val appDatabase: AppDatabase by lazy {
+        Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            "photoEntry"
+        ).allowMainThreadQueries()
+        .build()
+    }
+}
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,23 +80,26 @@ enum class Screen {
 fun AppNavigation() {
     var currentScreen by remember { mutableStateOf(Screen.HOME) }
 
-    val photoHistory = remember { mutableStateListOf<PhotoEntry>() }
+    val context = LocalContext.current
+    val db = remember { DatabaseClient(context).appDatabase }
+    val photoDao = remember {db.photoEntryDao()}
 
     when (currentScreen) {
         Screen.HOME -> HomeScreen(
             onNavigateToCamera = { currentScreen = Screen.CAMERA },
-            photoHistory = photoHistory
+            photoDao = photoDao
         )
 
         Screen.CAMERA -> CameraScreen(
             onNavigateBack = { currentScreen = Screen.HOME },
-            onPhotoTaken = { entry -> photoHistory.add(entry) }
+            onPhotoTaken = { entry -> photoDao.insert(entry) }
         )
     }
 }
 
 @Composable
-fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
+fun HomeScreen(onNavigateToCamera: () -> Unit, photoDao: PhotoEntryDao) {
+    val photoHistory = photoDao.getAll()
 
     var selectedEntry by remember { mutableStateOf<PhotoEntry?>(null) }
 
@@ -123,9 +129,7 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
                 modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
                 photoHistory.reversed().forEach { entry ->
-                    val bitmap = remember(entry.imagePath) { BitmapFactory.decodeFile(entry.imagePath) }
-                    val maskBitmap = remember(entry.maskPath) { BitmapFactory.decodeFile(entry.maskPath) }
-
+                    val bitmap = remember(entry.imagePath) { BitmapFactory.decodeFile(entry.croppedImagePath) }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -146,17 +150,6 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
                                 contentScale = ContentScale.Crop
                             )
                         }
-                        if (maskBitmap != null) {
-                            Image(
-                                bitmap = maskBitmap.asImageBitmap(),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(120.dp)
-                                    .padding(end = 8.dp),
-                                contentScale = ContentScale.Crop
-                            )
-                        }
-
                         Column {
                             Text("📷 ${entry.prediction}", style = MaterialTheme.typography.bodyMedium)
                             Text("📊 ${"%.2f".format(entry.confidence * 100)}%", style = MaterialTheme.typography.bodyMedium)
@@ -164,6 +157,13 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoHistory: List<PhotoEntry>) {
                                 "🕓 ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(entry.timestamp))}",
                                 style = MaterialTheme.typography.bodySmall
                             )
+                        }
+                        Column{
+                            Button(onClick = {
+                                photoDao.delete(entry)
+                            }) {
+                                Text("Eliminar")
+                            }
                         }
                     }
                 }
@@ -304,7 +304,7 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                             val timestamp = System.currentTimeMillis()
                             val fileName = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + ".jpg"
 
-                            val photoFile = File(context.cacheDir, fileName)
+                            val photoFile = File(context.filesDir, fileName)
 
                             val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
                             capture.takePicture(
@@ -333,7 +333,7 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                                             outputSize = 256
                                         )
 
-                                        val croppedFile= File(context.cacheDir, fileName)
+                                        val croppedFile= File(context.filesDir, fileName)
                                         FileOutputStream(croppedFile).use { out ->
                                             croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
                                         }
@@ -394,7 +394,7 @@ fun GalleryPickerButton(context: Context, onPhotoTaken: (PhotoEntry) -> Unit) {
             if (bitmap != null) {
                 val timestamp = System.currentTimeMillis()
                 val fileName = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + ".jpg"
-                val photoFile = File(context.cacheDir, fileName)
+                val photoFile = File(context.filesDir, fileName)
                 val resizedBitmap = bitmap.scale(256,256)
 
                 FileOutputStream(photoFile).use { out ->
