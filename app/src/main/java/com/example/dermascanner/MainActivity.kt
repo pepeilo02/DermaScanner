@@ -120,7 +120,7 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoDao: PhotoEntryDao) {
             onClick = onNavigateToCamera,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Open Camera")
+            Text("Abrir cámara")
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -337,7 +337,6 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                 GalleryPickerButton(context, onPhotoTaken = { entry ->
                     analysisResult = entry
                     showResultDialog = true
-                    onPhotoTaken(entry)
                 })
 
                 Button(
@@ -380,9 +379,7 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                                         }
 
                                         val result = imageClassifier(croppedBitmap, photoFile, context, fileName, timestamp)
-                                        onPhotoTaken(result)
 
-                                        // Actualiza estados para mostrar el diálogo
                                         analysisResult = result
                                         isLoading = false // Oculta el spinner
                                         showResultDialog = true // Muestra el diálogo
@@ -481,8 +478,16 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                         }
                     },
                     confirmButton = {
+                        Button(onClick = {
+                            onPhotoTaken(entry)
+                            showResultDialog = false
+                        }) {
+                            Text("Guardar")
+                        }
+                    },
+                    dismissButton = {
                         Button(onClick = { showResultDialog = false }) {
-                            Text("Cerrar")
+                            Text("Cancelar")
                         }
                     }
                 )
@@ -512,7 +517,6 @@ fun GalleryPickerButton(context: Context, onPhotoTaken: (PhotoEntry) -> Unit) {
 
                 onPhotoTaken(result)
 
-                Toast.makeText(context, "Photo & mask saved!", Toast.LENGTH_SHORT).show()
             }
         } else {
             Log.d("PhotoPicker", "No media selected")
