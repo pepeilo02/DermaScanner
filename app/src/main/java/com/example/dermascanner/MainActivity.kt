@@ -17,6 +17,7 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -253,79 +254,81 @@ fun CameraScreen(onNavigateBack: () -> Unit,
     }
 
     val previewViewRef = remember { mutableStateOf<PreviewView?>(null) }
-
     val croppingBoxCoords = remember { mutableStateOf<LayoutCoordinates?>(null) }
-    if (hasPermission) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()) {
-                AndroidView(factory = { ctx ->
-                    val previewView = PreviewView(ctx)
 
-                    previewViewRef.value = previewView
+    // Estados para controlar la carga y el diálogo de resultado
+    var isLoading by remember { mutableStateOf(false) }
+    var showResultDialog by remember { mutableStateOf(false) }
+    var analysisResult by remember { mutableStateOf<PhotoEntry?>(null) }
 
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (hasPermission) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()) {
+                    AndroidView(factory = { ctx ->
+                        val previewView = PreviewView(ctx)
+                        previewViewRef.value = previewView
 
-                    val preview = Preview.Builder().build()
+                        val preview = Preview.Builder().build()
+                        imageCapture = ImageCapture.Builder().build()
+                        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-                    imageCapture = ImageCapture.Builder().build()
+                        val cameraProvider = cameraProviderFuture.get()
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            preview,
+                            imageCapture
+                        )
+                        preview.surfaceProvider = previewView.surfaceProvider
+                        previewView
+                    })
 
-                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-                    val cameraProvider = cameraProviderFuture.get()
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        cameraSelector,
-                        preview,
-                        imageCapture
+                    Box(
+                        modifier = Modifier
+                            .size(CROPPING_BOX_SIZE)
+                            .align(Alignment.Center)
+                            .border(2.dp, Color.White, RoundedCornerShape(8.dp))
+                            .onGloballyPositioned { coordinates -> croppingBoxCoords.value = coordinates }
                     )
+                }
 
-                    preview.surfaceProvider = previewView.surfaceProvider
-                    previewView
+                GalleryPickerButton(context, onPhotoTaken = { entry ->
+                    analysisResult = entry
+                    showResultDialog = true
+                    onPhotoTaken(entry)
                 })
 
-
-
-                Box(
-                    modifier = Modifier
-                        .size(CROPPING_BOX_SIZE)
-                        .align(Alignment.Center)
-                        .border(2.dp, Color.White, RoundedCornerShape(8.dp))
-                        .onGloballyPositioned { coordinates -> croppingBoxCoords.value = coordinates }
-                )
-
-
-            }
-                GalleryPickerButton(LocalContext.current, onPhotoTaken = onPhotoTaken)
                 Button(
                     onClick = {
+                        isLoading = true // Muestra el spinner
                         imageCapture?.let { capture ->
                             val timestamp = System.currentTimeMillis()
                             val fileName = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(Date(timestamp)) + ".jpg"
-
                             val photoFile = File(context.filesDir, fileName)
-
                             val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
                             capture.takePicture(
                                 outputOptions,
                                 executor,
                                 object : ImageCapture.OnImageSavedCallback {
                                     override fun onError(exc: ImageCaptureException) {
                                         Log.e("Camera", "Photo capture failed: ${exc.message}", exc)
+                                        isLoading = false // Oculta el spinner en caso de error
                                     }
 
                                     override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-
                                         val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
                                         if (bitmap == null) {
                                             Toast.makeText(context, "Error decoding image", Toast.LENGTH_SHORT).show()
+                                            isLoading = false
                                             return
                                         }
 
                                         val rotatedBitmap = rotateBitmapIfRequired(bitmap, photoFile)
-
-
                                         val croppedBitmap = cropBitmapFromPreviewBox(
                                             rotatedBitmap,
                                             previewViewRef.value!!,
@@ -333,19 +336,18 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                                             outputSize = 256
                                         )
 
-                                        val croppedFile= File(context.filesDir, fileName)
+                                        val croppedFile = File(context.filesDir, fileName)
                                         FileOutputStream(croppedFile).use { out ->
                                             croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
                                         }
 
-
                                         val result = imageClassifier(croppedBitmap, photoFile, context, fileName, timestamp)
+                                        onPhotoTaken(result)
 
-                                        onPhotoTaken(
-                                            result
-                                        )
-
-                                        Toast.makeText(context, "Photo & mask saved!", Toast.LENGTH_SHORT).show()
+                                        // Actualiza estados para mostrar el diálogo
+                                        analysisResult = result
+                                        isLoading = false // Oculta el spinner
+                                        showResultDialog = true // Muestra el diálogo
                                     }
                                 }
                             )
@@ -355,9 +357,8 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    Text("Take Photo")
+                    Text("Hacer foto")
                 }
-
 
                 Button(
                     onClick = onNavigateBack,
@@ -365,20 +366,88 @@ fun CameraScreen(onNavigateBack: () -> Unit,
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
+                    Text("Volver al historial")
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("Camera permission is required.")
+                Button(onClick = onNavigateBack) {
                     Text("Back to Home")
                 }
             }
-    } else {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text("Camera permission is required.")
-            Button(onClick = onNavigateBack) {
-                Text("Back to Home")
+        }
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(enabled = false, onClick = {}),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+
+        if (showResultDialog) {
+            analysisResult?.let { entry ->
+                AlertDialog(
+                    onDismissRequest = { showResultDialog = false },
+                    title = { Text(text = "Detalles de la foto") },
+                    text = {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val originalBitmap = BitmapFactory.decodeFile(entry.imagePath)
+                            val croppedBitmap = BitmapFactory.decodeFile(entry.croppedImagePath)
+
+                            if (originalBitmap != null) {
+                                Text("Foto Original")
+                                Image(
+                                    bitmap = originalBitmap.asImageBitmap(),
+                                    contentDescription = "Foto original",
+                                    modifier = Modifier
+                                        .size(200.dp)
+                                        .padding(8.dp),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+
+                            if (croppedBitmap != null) {
+                                Text("Foto Recortada")
+                                Image(
+                                    bitmap = croppedBitmap.asImageBitmap(),
+                                    contentDescription = "Foto recortada",
+                                    modifier = Modifier
+                                        .size(200.dp)
+                                        .padding(8.dp),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text("Predicción: ${entry.prediction}", style = MaterialTheme.typography.bodyLarge)
+                            Text("Confianza: ${"%.2f".format(entry.confidence * 100)}%", style = MaterialTheme.typography.bodyMedium)
+                            if (entry.prediction == "Maligno" && entry.confidence > 0.75) {
+                                Text(color = Color.Red, text = "Deberia consultar con su médico esta lesión")
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = { showResultDialog = false }) {
+                            Text("Cerrar")
+                        }
+                    }
+                )
             }
         }
     }
@@ -420,6 +489,6 @@ fun GalleryPickerButton(context: Context, onPhotoTaken: (PhotoEntry) -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        Text("Open Gallery")
+        Text("Abrir Galería")
     }
 }
