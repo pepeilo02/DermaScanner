@@ -10,6 +10,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import kotlinx.coroutines.flow.Flow
 
 @Entity
 data class PhotoEntry(
@@ -25,7 +26,7 @@ data class PhotoEntry(
 @Dao
 interface PhotoEntryDao{
     @Query("SELECT * FROM PhotoEntry ORDER BY timestamp ASC")
-    fun getAll(): List<PhotoEntry>
+    fun getAll(): Flow<List<PhotoEntry>>
 
     @Query("SELECT * FROM PhotoEntry WHERE id = :id")
     fun getById(id: Int): PhotoEntry?

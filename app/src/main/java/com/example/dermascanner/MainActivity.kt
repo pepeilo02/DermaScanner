@@ -23,6 +23,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -40,6 +42,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.text.SimpleDateFormat
@@ -100,9 +103,13 @@ fun AppNavigation() {
 
 @Composable
 fun HomeScreen(onNavigateToCamera: () -> Unit, photoDao: PhotoEntryDao) {
-    val photoHistory = photoDao.getAll()
+
+    val photoHistory by photoDao.getAll().collectAsState(initial = emptyList())
 
     var selectedEntry by remember { mutableStateOf<PhotoEntry?>(null) }
+
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var selectedEntryToDelete by remember { mutableStateOf<PhotoEntry?>(null) }
 
     Column(
         modifier = Modifier
@@ -125,11 +132,10 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoDao: PhotoEntryDao) {
         if (photoHistory.isEmpty()) {
             Text("No hay fotos aún.")
         } else {
-            Column(
+            LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
-                photoHistory.reversed().forEach { entry ->
+                items(photoHistory.reversed()) { entry ->
                     val bitmap = remember(entry.imagePath) { BitmapFactory.decodeFile(entry.croppedImagePath) }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -137,7 +143,6 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoDao: PhotoEntryDao) {
                             .fillMaxWidth()
                             .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
                             .padding(8.dp)
-                            .scrollable(orientation = Orientation.Horizontal, state = rememberScrollState())
                             .clickable { selectedEntry = entry }
                     ) {
                         if (bitmap != null) {
@@ -151,7 +156,7 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoDao: PhotoEntryDao) {
                                 contentScale = ContentScale.Crop
                             )
                         }
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text("📷 ${entry.prediction}", style = MaterialTheme.typography.bodyMedium)
                             Text("📊 ${"%.2f".format(entry.confidence * 100)}%", style = MaterialTheme.typography.bodyMedium)
                             Text(
@@ -159,17 +164,50 @@ fun HomeScreen(onNavigateToCamera: () -> Unit, photoDao: PhotoEntryDao) {
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                        Column{
-                            Button(onClick = {
-                                photoDao.delete(entry)
-                            }) {
-                                Text("Eliminar")
-                            }
+                        Button(onClick = {
+                           showDeleteDialog = true;
+                            selectedEntryToDelete = entry
+                        }) {
+                            Text("Eliminar")
                         }
                     }
                 }
             }
         }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showDeleteDialog = false
+                selectedEntryToDelete = null
+            },
+            title = { Text("Confirmar eliminación") },
+            text = { Text("¿Estás seguro de que deseas eliminar esta foto?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        selectedEntryToDelete?.let {
+                            photoDao.delete(it)
+                        }
+                        showDeleteDialog = false
+                        selectedEntryToDelete = null
+                    }
+                ) {
+                    Text("Eliminar")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = {
+                        showDeleteDialog = false
+                        selectedEntryToDelete = null
+                    }
+                ) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
     selectedEntry?.let { entry ->
         AlertDialog(
